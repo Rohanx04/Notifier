@@ -14,8 +14,8 @@ youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 # Dictionary to store a list of channels to track for each guild
 tracked_channels = {}
 
-# Slash command to set multiple YouTube channels to track
-@bot.slash_command(name="add_channel", description="Add a YouTube channel to track for live streams.")
+# Slash command to set multiple YouTube channels to track (add guild_ids for faster testing)
+@bot.slash_command(name="add_channel", description="Add a YouTube channel to track for live streams.", guild_ids=[632247456238665739])
 async def add_channel(interaction: nextcord.Interaction, channel_id: str):
     guild_id = interaction.guild.id
 
@@ -31,8 +31,8 @@ async def add_channel(interaction: nextcord.Interaction, channel_id: str):
     else:
         await interaction.response.send_message(f"Channel {channel_id} is already being tracked.")
 
-# Slash command to remove a YouTube channel from the list
-@bot.slash_command(name="remove_channel", description="Remove a YouTube channel from tracking.")
+# Slash command to remove a YouTube channel from the list (add guild_ids for faster testing)
+@bot.slash_command(name="remove_channel", description="Remove a YouTube channel from tracking.", guild_ids=[632247456238665739])
 async def remove_channel(interaction: nextcord.Interaction, channel_id: str):
     guild_id = interaction.guild.id
 
@@ -44,8 +44,8 @@ async def remove_channel(interaction: nextcord.Interaction, channel_id: str):
     else:
         await interaction.response.send_message(f"Channel {channel_id} is not being tracked.")
 
-# Slash command to list all tracked channels for the guild
-@bot.slash_command(name="list_channels", description="List all YouTube channels being tracked.")
+# Slash command to list all tracked channels for the guild (add guild_ids for faster testing)
+@bot.slash_command(name="list_channels", description="List all YouTube channels being tracked.", guild_ids=[632247456238665739])
 async def list_channels(interaction: nextcord.Interaction):
     guild_id = interaction.guild.id
 
@@ -109,10 +109,17 @@ async def check_streams():
                 channel = guild.text_channels[0]  # Or specify a particular channel if needed
                 await channel.send(content="@everyone", embed=embed)
 
-# Start the task after the bot is ready and sync commands
+# Ping command to test if the bot and slash commands are working (add guild_ids for faster testing)
+@bot.slash_command(name="ping", description="Ping the bot to check if it's online.", guild_ids=[632247456238665739])
+async def ping(interaction: nextcord.Interaction):
+    await interaction.response.send_message("Pong!")
+
+# Sync the slash commands and start the task after the bot is ready
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
+    # Sync the slash commands with Discord
+    await bot.sync_application_commands()
     check_streams.start()  # Start checking for live streams
 
 # Run the bot
