@@ -57,18 +57,48 @@ async def add_channel(interaction: nextcord.Interaction, channel_id: str):
     else:
         await interaction.response.send_message(f"Channel {channel_id} is already being tracked.")
 
-# Slash command to remove a YouTube channel from the list
+# Slash command to remove a YouTube channel from the list (with dropdown)
 @bot.slash_command(name="remove_channel", description="Remove a YouTube channel from tracking.")
-async def remove_channel(interaction: nextcord.Interaction, channel_id: str):
+async def remove_channel(interaction: nextcord.Interaction):
     guild_id = interaction.guild.id
 
     # Check if the guild is tracking channels
-    if guild_id in tracked_channels and channel_id in tracked_channels[guild_id]:
-        tracked_channels[guild_id].remove(channel_id)
-        await interaction.response.send_message(f"Removed YouTube channel: {channel_id}")
-        print(f"Removed channel {channel_id} for guild {guild_id}")
-    else:
-        await interaction.response.send_message(f"Channel {channel_id} is not being tracked.")
+    if guild_id not in tracked_channels or len(tracked_channels[guild_id]) == 0:
+        await interaction.response.send_message("No channels are currently being tracked.")
+        return
+
+    # Create a list of channel names and IDs for the dropdown
+    options = []
+    for channel_id in tracked_channels[guild_id]:
+        channel_name = get_channel_name(channel_id)
+        if channel_name:
+            options.append(nextcord.SelectOption(label=channel_name, value=channel_id))
+        else:
+            options.append(nextcord.SelectOption(label=f"Unknown Channel (ID: {channel_id})", value=channel_id))
+
+    # Create a dropdown for the user to select a channel to remove
+    class ChannelSelect(nextcord.ui.Select):
+        def __init__(self):
+            super().__init__(
+                placeholder="Select a channel to remove...",
+                min_values=1,
+                max_values=1,
+                options=options
+            )
+
+        async def callback(self, interaction: nextcord.Interaction):
+            selected_channel_id = self.values[0]
+            tracked_channels[guild_id].remove(selected_channel_id)
+            channel_name = get_channel_name(selected_channel_id)
+            await interaction.response.send_message(f"Removed YouTube channel: {channel_name or 'Unknown Channel'}")
+            print(f"Removed channel {channel_name or selected_channel_id} for guild {guild_id}")
+
+    # Create a view with the dropdown
+    view = nextcord.ui.View()
+    view.add_item(ChannelSelect())
+    
+    # Send the dropdown to the user
+    await interaction.response.send_message("Select a channel to remove:", view=view)
 
 # Slash command to list all tracked channels for the guild
 @bot.slash_command(name="list_channels", description="List all YouTube channels being tracked.")
@@ -119,8 +149,8 @@ def check_live_stream(channel_id):
 
     return (False, None, None, None)
 
-# Task to check for live streams periodically for multiple channels (every 1 minute)
-@tasks.loop(minutes=1)  # Decreased the time interval to 1 minute
+# Task to check for live streams periodically for multiple channels (every 3 minutes)
+@tasks.loop(minutes=3)  # Changed to 3 minutes
 async def check_streams():
     print("Checking streams...")
     for guild_id, channels in tracked_channels.items():
