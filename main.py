@@ -16,6 +16,25 @@ youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 # Dictionary to store a list of channels to track for each guild
 tracked_channels = {}
 
+# Function to fetch the name of a YouTube channel from its ID
+def get_channel_name(channel_id):
+    try:
+        # Use the YouTube API to get channel details
+        request = youtube.channels().list(
+            part="snippet",
+            id=channel_id
+        )
+        response = request.execute()
+
+        if 'items' in response and len(response['items']) > 0:
+            channel_name = response['items'][0]['snippet']['title']
+            return channel_name
+        else:
+            return None
+    except Exception as e:
+        print(f"Error fetching channel name: {e}")
+        return None
+
 # Slash command to set multiple YouTube channels to track
 @bot.slash_command(name="add_channel", description="Add a YouTube channel to track for live streams.")
 async def add_channel(interaction: nextcord.Interaction, channel_id: str):
@@ -27,9 +46,14 @@ async def add_channel(interaction: nextcord.Interaction, channel_id: str):
 
     # Add the channel ID to the tracked channels for this guild, if it's not already added
     if channel_id not in tracked_channels[guild_id]:
-        tracked_channels[guild_id].append(channel_id)
-        await interaction.response.send_message(f"Now tracking YouTube channel: {channel_id}")
-        print(f"Tracking channel {channel_id} for guild {guild_id}")
+        channel_name = get_channel_name(channel_id)
+        
+        if channel_name:
+            tracked_channels[guild_id].append(channel_id)
+            await interaction.response.send_message(f"Now tracking YouTube channel: {channel_name}")
+            print(f"Tracking channel {channel_name} (ID: {channel_id}) for guild {guild_id}")
+        else:
+            await interaction.response.send_message("Error: Unable to retrieve the channel name. Please check the channel ID.")
     else:
         await interaction.response.send_message(f"Channel {channel_id} is already being tracked.")
 
