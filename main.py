@@ -75,10 +75,18 @@ async def remove_channel(interaction: nextcord.Interaction, channel_id: str):
 async def list_channels(interaction: nextcord.Interaction):
     guild_id = interaction.guild.id
 
-    # List the tracked channels for the guild
     if guild_id in tracked_channels and len(tracked_channels[guild_id]) > 0:
-        channels = "\n".join(tracked_channels[guild_id])
-        await interaction.response.send_message(f"Currently tracking these channels:\n{channels}")
+        channel_names = []
+        for channel_id in tracked_channels[guild_id]:
+            channel_name = get_channel_name(channel_id)
+            if channel_name:
+                channel_names.append(channel_name)
+            else:
+                channel_names.append(f"Unknown Channel (ID: {channel_id})")
+
+        # Send the list of channel names to the user
+        channels_list = "\n".join(channel_names)
+        await interaction.response.send_message(f"Currently tracking these channels:\n{channels_list}")
     else:
         await interaction.response.send_message("No channels are currently being tracked.")
 
@@ -111,8 +119,8 @@ def check_live_stream(channel_id):
 
     return (False, None, None, None)
 
-# Task to check for live streams periodically for multiple channels
-@tasks.loop(minutes=5)
+# Task to check for live streams periodically for multiple channels (every 1 minute)
+@tasks.loop(minutes=1)  # Decreased the time interval to 1 minute
 async def check_streams():
     print("Checking streams...")
     for guild_id, channels in tracked_channels.items():
