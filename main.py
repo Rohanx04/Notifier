@@ -9,6 +9,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # YouTube API setup
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')  # Fetch from environment variables
+if not YOUTUBE_API_KEY:
+    print("Error: YOUTUBE_API_KEY is missing!")
 youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 
 # Dictionary to store a list of channels to track for each guild
@@ -118,10 +120,22 @@ async def ping(interaction: nextcord.Interaction):
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
+    
+    # Set Rich Presence (watching status)
+    await bot.change_presence(activity=nextcord.Activity(type=nextcord.ActivityType.watching, name="YouTube streams"))
+
     # Sync the slash commands with Discord
-    await bot.sync_application_commands()
+    try:
+        await bot.sync_application_commands()  # Ensure commands are registered
+    except Exception as e:
+        print(f"Error syncing slash commands: {e}")
+    
     # Start checking for live streams
     check_streams.start()
 
 # Run the bot
-bot.run(os.getenv('DISCORD_BOT_TOKEN'))
+DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+if not DISCORD_BOT_TOKEN:
+    print("Error: DISCORD_BOT_TOKEN is missing!")
+else:
+    bot.run(DISCORD_BOT_TOKEN)
