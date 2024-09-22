@@ -20,7 +20,10 @@ TWITCH_CLIENT_SECRET = os.getenv('TWITCH_CLIENT_SECRET')
 TWITCH_OAUTH_TOKEN = None
 
 tracked_channels = {'youtube': {}, 'twitch': {}}
+notification_channels = {}  # Custom notification channels per guild
+tracked_types = {}  # Store content type tracking preferences
 last_live_streams = {}
+notification_messages = {}  # Store custom notification messages
 
 # Function to get Twitch OAuth token
 def get_twitch_oauth_token():
@@ -105,9 +108,16 @@ def is_short(duration):
             return True
     return False
 
-# Slash command to add a YouTube or Twitch channel
-@bot.slash_command(name="add_channel", description="Add a YouTube or Twitch channel to track.")
-async def add_channel(interaction: nextcord.Interaction, platform: str, channel_name: str):
+# Set custom notification channel
+@bot.slash_command(name="set_notification_channel", description="Set the channel where notifications will be sent.")
+async def set_notification_channel(interaction: nextcord.Interaction, channel: nextcord.TextChannel):
+    guild_id = interaction.guild.id
+    notification_channels[guild_id] = channel.id
+    await interaction.response.send_message(f"Notifications will now be sent to {channel.mention}")
+
+# Slash command to add a YouTube or Twitch channel with content type
+@bot.slash_command(name="add_channel", description="Add a YouTube or Twitch channel to track for specific content.")
+async def add_channel(interaction: nextcord.Interaction, platform: str, channel_name: str, content_type: str = 'all'):
     await interaction.response.defer()
 
     guild_id = interaction.guild.id
@@ -119,7 +129,8 @@ async def add_channel(interaction: nextcord.Interaction, platform: str, channel_
             await interaction.followup.send(f"Error: Unable to find YouTube channel '{channel_name}'.")
             return
         tracked_channels['youtube'].setdefault(guild_id, []).append(channel_id)
-        await interaction.followup.send(f"Now tracking YouTube channel: {channel_name}")
+        tracked_types[channel_id] = content_type.lower()
+        await interaction.followup.send(f"Now tracking YouTube channel: {channel_name} for {content_type}")
     
     elif platform == 'twitch':
         tracked_channels['twitch'].setdefault(guild_id, []).append(channel_name.lower())
@@ -128,32 +139,57 @@ async def add_channel(interaction: nextcord.Interaction, platform: str, channel_
     else:
         await interaction.followup.send("Invalid platform. Please use 'youtube' or 'twitch'.")
 
-# Slash command to remove a YouTube or Twitch channel
-@bot.slash_command(name="remove_channel", description="Remove a YouTube or Twitch channel from tracking.")
-async def remove_channel(interaction: nextcord.Interaction, platform: str, channel_name: str):
+# Slash command to get YouTube channel statistics
+@bot.slash_command(name="channel_stats", description="Get statistics for a YouTube channel.")
+async def channel_stats(interaction: nextcord.Interaction, channel_name: str):
     await interaction.response.defer()
+    channel_id = get_channel_id(channel_name)
+    if not channel_id:
+        await interaction.followup.send(f"Channel {channel_name} not found.")
+        return
 
+    request = youtube.channels().list(part="statistics", id=channel_id)
+    response = request.execute()
+    if 'items' in response and len(response['items']) > 0:
+        stats = response['items'][0]['statistics']
+        subs = stats['subscriberCount']
+        views = stats['viewCount']
+        videos = stats['videoCount']
+        await interaction.followup.send(f"{channel_name} has {subs} subscribers, {views} views, and {videos} videos.")
+
+# Command to customize notification messages
+@bot.slash_command(name="set_notification_message", description="Customize the notification message.")
+async def set_notification_message(interaction: nextcord.Interaction, message: str):
     guild_id = interaction.guild.id
-    platform = platform.lower()
+    notification_messages[guild_id] = message
+    await interaction.followup.send("Notification message updated!")
 
-    if platform == 'youtube' and guild_id in tracked_channels['youtube']:
-        tracked_channels['youtube'][guild_id].remove(channel_name)
-        await interaction.followup.send(f"Removed YouTube channel: {channel_name}")
-    
-    elif platform == 'twitch' and guild_id in tracked_channels['twitch']:
-        tracked_channels['twitch'][guild_id].remove(channel_name.lower())
-        await interaction.followup.send(f"Removed Twitch channel: {channel_name}")
-    
-    else:
-        await interaction.followup.send(f"No {platform} channel named '{channel_name}' found in tracking.")
+# Interactive Poll for Live Streams
+class Poll(nextcord.ui.View):
+    def __init__(self):
+        super().__init__()
+        self.value = None
+
+    @nextcord.ui.button(label="Yes", style=nextcord.ButtonStyle.green)
+    async def yes(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        await interaction.response.send_message("You voted Yes!")
+
+    @nextcord.ui.button(label="No", style=nextcord.ButtonStyle.red)
+    async def no(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        await interaction.response.send_message("You voted No!")
+
+@bot.slash_command(name="poll", description="Create a poll for a live stream.")
+async def poll(interaction: nextcord.Interaction):
+    view = Poll()
+    await interaction.response.send_message("Are you watching the stream?", view=view)
 
 # Task to check for video uploads, live streams, and Twitch streams
 @tasks.loop(minutes=3)
 async def check_streams():
     print("Checking for new YouTube uploads, live streams, and Twitch streams...")
     
-    for guild_id in tracked_channels['youtube']:
-        for channel_id in tracked_channels['youtube'][guild_id]:
+    for guild_id, channels in tracked_channels['youtube'].items():
+        for channel_id in channels:
             is_video, video_title, video_thumbnail, video_url, video_id = check_video_uploads(channel_id)
 
             if not is_video:
@@ -161,25 +197,33 @@ async def check_streams():
                 continue
 
             if last_live_streams.get(channel_id) == video_id:
-                continue
+                continue  # Skip if the video has already been notified
 
             guild = bot.get_guild(guild_id)
-            if guild:
+            if guild and is_video:
                 last_live_streams[channel_id] = video_id
+
                 video_duration = check_video_details(video_id)
-                title_prefix = "New Short Uploaded" if is_short(video_duration) else "New Video Uploaded"
+                if is_short(video_duration):
+                    title_prefix = "New Short Uploaded"
+                    embed_color = nextcord.Color.green()
+                else:
+                    title_prefix = "New Video Uploaded"
+                    embed_color = nextcord.Color.blue()
 
                 embed = nextcord.Embed(
                     title=f"{title_prefix}: {video_title}",
                     description=f"[Click to watch the video]({video_url})",
-                    color=nextcord.Color.blue()
+                    color=embed_color
                 )
                 embed.set_image(url=video_thumbnail)
-                channel = guild.text_channels[0]
-                await channel.send(content="@everyone", embed=embed)
 
-    for guild_id in tracked_channels['twitch']:
-        for channel_name in tracked_channels['twitch'][guild_id]:
+                # Send notification to a custom or default channel
+                channel = bot.get_channel(notification_channels.get(guild_id, guild.text_channels[0].id))
+                await channel.send(content=notification_messages.get(guild_id, "@everyone"), embed=embed)
+
+    for guild_id, channels in tracked_channels['twitch'].items():
+        for channel_name in channels:
             is_live, stream_title, stream_thumbnail, stream_url = check_twitch_stream(channel_name)
 
             if is_live and last_live_streams.get(channel_name) != stream_url:
@@ -192,8 +236,8 @@ async def check_streams():
                         color=nextcord.Color.purple()
                     )
                     embed.set_image(url=stream_thumbnail)
-                    channel = guild.text_channels[0]
-                    await channel.send(content="@everyone", embed=embed)
+                    channel = bot.get_channel(notification_channels.get(guild_id, guild.text_channels[0].id))
+                    await channel.send(content=notification_messages.get(guild_id, "@everyone"), embed=embed)
 
 @bot.slash_command(name="ping", description="Ping the bot to check if it's online.")
 async def ping(interaction: nextcord.Interaction):
